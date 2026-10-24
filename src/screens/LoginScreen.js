@@ -1,139 +1,264 @@
-
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
+  ActivityIndicator,
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
-  Image,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import TrickleLogo from '../components/TrickleLogo';
+import colors from '../constants/colors';
+import fonts from '../constants/fonts';
+import radius from '../constants/radius';
+import spacing from '../constants/spacing';
+import {adminLogin} from '../api/auth';
+import {registerDeviceForPush} from '../notifications/push';
+
+const getErrorMessage = error => {
+  if (error?.status === 401) {
+    return 'Incorrect username or password.';
+  }
+  return (
+    error?.data?.message ||
+    error?.data?.error ||
+    error?.message ||
+    'Login failed. Please try again.'
+  );
+};
 
 export default function LoginScreen({navigation}) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const passwordRef = useRef(null);
 
-  const handleLogin = () => {
-    if (!email.trim() || !password) {
-      Alert.alert('Required', 'Please enter email and password.');
+  const handleLogin = async () => {
+    if (loading) {
+      return;
+    }
+    const trimmed = username.trim();
+    const nextErrors = {};
+    if (!trimmed) {
+      nextErrors.username = 'Enter your username.';
+    }
+    if (!password) {
+      nextErrors.password = 'Enter your password.';
+    }
+    setFieldErrors(nextErrors);
+    setFormError('');
+    if (Object.keys(nextErrors).length) {
       return;
     }
 
-    // Demo only: replace with your authentication API.
-    navigation.replace('Home');
+    setLoading(true);
+    try {
+      await adminLogin(trimmed, password);
+    } catch (error) {
+      setFormError(getErrorMessage(error));
+      setLoading(false);
+      return;
+    }
+
+    // Best-effort — never blocks or fails the login.
+    registerDeviceForPush();
+    setLoading(false);
+    setPassword('');
+    navigation.replace('MainTabs');
+  };
+
+  const clearFieldError = key => {
+    if (fieldErrors[key] || formError) {
+      setFieldErrors(prev => ({...prev, [key]: undefined}));
+      setFormError('');
+    }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled">
+    <View style={styles.screen}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={Platform.OS === 'android'}
+      />
+      <ImageBackground
+        accessible={false}
+        source={require('../assets/images/packageDelivery/world.jpg')}
+        style={styles.backgroundArt}
+        resizeMode="cover">
+        <View style={styles.backgroundOverlay} />
+      </ImageBackground>
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            contentContainerStyle={styles.container}
+            keyboardShouldPersistTaps="handled">
+            <View style={styles.header}>
+              <TrickleLogo lightTheme={false} size={40} />
+              <Text style={styles.tagline}>SUPPORT CONSOLE</Text>
+            </View>
 
-             <Image
-                      source={require('../assets/images/trickleLogo.png')}
-                      style={styles.logo}
-                      resizeMode="contain"
-                    />
+            <View style={styles.authPanel}>
+              <Text style={styles.panelTitle}>Staff sign in</Text>
 
-        <Text style={styles.heading}>Welcome!</Text>
-        <Text style={styles.subtitle}>
-          Login to continue
-        </Text>
+              <Text style={styles.label}>USERNAME</Text>
+              <TextInput
+                style={[styles.input, fieldErrors.username && styles.inputError]}
+                value={username}
+                onChangeText={value => {
+                  setUsername(value);
+                  clearFieldError('username');
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                textContentType="username"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                editable={!loading}
+              />
+              {!!fieldErrors.username && (
+                <Text style={styles.errorText}>{fieldErrors.username}</Text>
+              )}
 
-        <Text style={styles.label}>Email Address</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your email"
-          placeholderTextColor="#888888"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+              <Text style={[styles.label, styles.labelSpaced]}>PASSWORD</Text>
+              <TextInput
+                ref={passwordRef}
+                style={[styles.input, fieldErrors.password && styles.inputError]}
+                value={password}
+                onChangeText={value => {
+                  setPassword(value);
+                  clearFieldError('password');
+                }}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="password"
+                textContentType="password"
+                returnKeyType="go"
+                onSubmitEditing={handleLogin}
+                editable={!loading}
+              />
+              {!!fieldErrors.password && (
+                <Text style={styles.errorText}>{fieldErrors.password}</Text>
+              )}
 
-        <Text style={styles.label}>Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter your password"
-          placeholderTextColor="#888888"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+              {!!formError && (
+                <Text style={[styles.errorText, styles.formError]}>
+                  {formError}
+                </Text>
+              )}
 
-        <TouchableOpacity
-          style={styles.button}
-          onPress={handleLogin}
-          activeOpacity={0.8}>
-          <Text style={styles.buttonText}>Login</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+              <Pressable
+                onPress={handleLogin}
+                disabled={loading}
+                style={({pressed}) => [
+                  styles.submitButton,
+                  (pressed || loading) && styles.buttonPressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Sign in">
+                {loading ? (
+                  <ActivityIndicator color={colors.onDark} />
+                ) : (
+                  <Text style={styles.submitText}>Sign in</Text>
+                )}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
+// Visual language mirrors the consumer app's Login (src/screens/Login/styles.js):
+// dark full-bleed art + overlay, translucent bordered auth panel, cream/coral
+// brand-chrome tokens, inline error text under the field.
 const styles = StyleSheet.create({
+  screen: {flex: 1, backgroundColor: colors.surface},
+  flex: {flex: 1},
+  safeArea: {flex: 1, backgroundColor: 'transparent'},
+  backgroundArt: {...StyleSheet.absoluteFillObject, overflow: 'hidden'},
+  backgroundOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(13, 13, 13, 0.45)',
+  },
   container: {
-    flex: 1,
-    backgroundColor: '#fff5e1',
-  },
-  content: {
     flexGrow: 1,
-    //justifyContent: 'center',
-    marginTop: 100,
-    padding: 24,
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: spacing.xxl,
   },
-  heading: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#1F2937',
+  header: {alignItems: 'center', marginBottom: 40},
+  tagline: {
+    color: colors.orangeLight,
+    fontFamily: fonts.labelBold,
+    fontSize: 10,
+    letterSpacing: 2.3,
+    marginTop: 10,
   },
-  logo: {
-    width: 180,
-    height: 100,
+  authPanel: {
+    backgroundColor: 'rgba(13, 13, 13, 0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(248, 228, 181, 0.42)',
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+  },
+  panelTitle: {
+    color: colors.onDark,
+    fontFamily: fonts.display,
+    fontSize: 24,
     marginBottom: 20,
-    alignSelf: 'center',
-  },
-  subtitle: {
-    fontSize: 20,
-    color: '#fc6756',
-    marginTop: 8,
-    marginBottom: 32,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#140a2f',
-    marginBottom: 8,
+    color: colors.orangeLight,
+    fontFamily: fonts.label,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    marginBottom: spacing.sm,
   },
+  labelSpaced: {marginTop: spacing.lg},
   input: {
     height: 52,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 10,
-    paddingHorizontal: 14,
+    borderWidth: 1.5,
+    borderColor: colors.inputBorder,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(13, 13, 13, 0.4)',
+    paddingHorizontal: 20,
+    color: colors.onDark,
+    fontFamily: fonts.body,
     fontSize: 16,
-    color: '#111827',
-    marginBottom: 20,
   },
-  button: {
-    height: 52,
-    backgroundColor: '#140a2f',
-    borderRadius: 10,
+  inputError: {borderColor: colors.danger},
+  errorText: {
+    color: colors.danger,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  formError: {marginTop: spacing.md},
+  submitButton: {
+    height: 54,
+    marginTop: spacing.xl,
+    backgroundColor: colors.orange,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
   },
-  buttonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: 'bold',
-  },
+  buttonPressed: {opacity: 0.82},
+  submitText: {color: colors.onDark, fontFamily: fonts.body, fontSize: 16},
 });

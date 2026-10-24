@@ -4,6 +4,18 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- @react-native-firebase/messaging's iOS module normally auto-hooks
+	     application:didFinishLaunchingWithOptions: via NSNotificationCenter
+	     to wire itself up with zero AppDelegate code. That hook crashes
+	     (doesNotRecognizeSelector) on every launch until this app has a real
+	     GoogleService-Info.plist + FIRApp.configure() — there is no Firebase
+	     project for this app yet. Disabling the proxy here stops that crash;
+	     push stays a safe no-op (per src/notifications/push.js's own
+	     messagingOrNull() guard) until real Firebase config is added. Once
+	     it is, this key can be removed (or left false with manual APNs/FCM
+	     wiring in AppDelegate, per react-native-firebase's docs). -->
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
@@ -34,7 +46,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string/>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -54,6 +66,11 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -73,5 +90,13 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Poppins-Regular.ttf</string>
+		<string>Raleway.ttf</string>
+		<string>EBGaramond.ttf</string>
+		<string>Jost.ttf</string>
+		<string>PlayfairDisplay.ttf</string>
+	</array>
 </dict>
 </plist>

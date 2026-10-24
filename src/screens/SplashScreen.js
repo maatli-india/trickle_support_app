@@ -1,89 +1,115 @@
 import React, {useEffect} from 'react';
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
   ActivityIndicator,
+  Image,
+  ImageBackground,
   StatusBar,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
+import colors from '../constants/colors';
+import fonts from '../constants/fonts';
+import {
+  clearTokens,
+  getAccessToken,
+  hasValidSession,
+  loadTokens,
+} from '../api/client';
+import {registerDeviceForPush} from '../notifications/push';
 
-
+// Keep the brand moment on screen briefly even when the token check is instant.
+const MIN_SPLASH_MS = 1200;
 
 export default function SplashScreen({navigation}) {
   useEffect(() => {
-    const timer = setTimeout(() => {
-      navigation.replace('Login');
-    }, 2000);
+    let cancelled = false;
+    const startedAt = Date.now();
 
-    return () => clearTimeout(timer);
+    const boot = async () => {
+      let loggedIn = false;
+      try {
+        await loadTokens();
+        loggedIn = hasValidSession();
+        // Stored but expired → treat as logged out without waiting for a 401.
+        if (!loggedIn && getAccessToken()) {
+          await clearTokens();
+        }
+      } catch (error) {
+        console.warn('[Splash] session check failed:', error?.message || error);
+      }
+
+      const wait = Math.max(0, MIN_SPLASH_MS - (Date.now() - startedAt));
+      await new Promise(resolve => setTimeout(resolve, wait));
+      if (cancelled) {
+        return;
+      }
+
+      if (loggedIn) {
+        // Backend wants a device upsert on every launch; best-effort.
+        registerDeviceForPush();
+        navigation.replace('MainTabs');
+      } else {
+        navigation.replace('Login');
+      }
+    };
+
+    boot();
+    return () => {
+      cancelled = true;
+    };
   }, [navigation]);
 
-
-return (
-    <View style={styles.container}>
-      <StatusBar hidden />
-
-      {/* Background image */}
-      <Image
-        source={require('../assets/images/trickleSplash.png')}
-        style={styles.backgroundImage}
-        resizeMode="cover"
-        accessible={false}
-      />
-
-      {/* Content above background */}
-      <View style={styles.overlay}>
+  return (
+    <ImageBackground
+      source={require('../assets/images/splashSpace.jpg')}
+      style={styles.background}
+      resizeMode="cover">
+      <StatusBar barStyle="light-content" backgroundColor={colors.surface} />
+      <View style={styles.overlay} />
+      <View style={styles.content}>
         <Image
-          source={require('../assets/images/trickleLogo.png')}
-          style={styles.logo}
+          source={require('../assets/images/appIcon.png')}
+          style={styles.icon}
           resizeMode="contain"
         />
-        <Text style={styles.subtitle}>
-          Welcome to our support app
-        </Text>
-
+        <Text style={styles.appName}>trickle</Text>
+        <Text style={styles.tagline}>SUPPORT CONSOLE</Text>
         <ActivityIndicator
           size="small"
-          color="#140a2f"
+          color={colors.onDark}
           style={styles.loader}
         />
       </View>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  backgroundImage: {
-    width: '100%',
-    height: '100%',
-  },
+  background: {flex: 1, backgroundColor: colors.surface},
   overlay: {
-    flex: 1,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
-    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(13, 13, 13, 0.38)',
   },
-  logo: {
-    width: 180,
-    height: 100,
-    marginBottom: 20,
+  content: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  icon: {
+    width: 96,
+    height: 96,
+    borderRadius: 24,
+    overflow: 'hidden',
   },
-  subtitle: {
-    fontSize: 20,
-    color: '#140a2f',
-    marginTop: 10,
+  appName: {
+    color: colors.onDark,
+    fontFamily: fonts.display,
+    fontSize: 30,
+    marginTop: 18,
   },
-  loader: {
-    marginTop: 24,
+  tagline: {
+    color: colors.orangeLight,
+    fontFamily: fonts.labelBold,
+    fontSize: 10,
+    letterSpacing: 2.3,
+    marginTop: 8,
   },
+  loader: {marginTop: 28},
 });
