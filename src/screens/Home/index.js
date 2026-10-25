@@ -151,11 +151,13 @@ export default function HomeScreen({navigation}) {
     }, [load, loadUnreadCount]),
   );
 
-  // Cross-tab: land on the Reports tab's root screen with a filter applied.
-  // `initialStatus: ''` explicitly resets the filter to All.
+  // Cross-tab: land on the Issues tab's root screen with a filter applied.
+  // `initialStatus: ''` explicitly resets the filter to All. Issues' own
+  // bucket values are 'open'/'resolved'/'closed' (not Report's raw
+  // 'submitted'/'resolved' statuses) — see screens/Issues/index.js.
   const openReports = initialStatus =>
-    navigation.navigate('ReportsTab', {
-      screen: 'Reports',
+    navigation.navigate('IssuesTab', {
+      screen: 'Issues',
       params: {initialStatus},
     });
 
@@ -190,7 +192,7 @@ export default function HomeScreen({navigation}) {
     }
     return (
       <>
-        <Text style={styles.sectionLabel}>REPORTS</Text>
+        <Text style={styles.sectionLabel}>ISSUES</Text>
         <View style={styles.statGrid}>
           <StatCard
             label="Total"
@@ -206,7 +208,7 @@ export default function HomeScreen({navigation}) {
             value={stats?.unresolved}
             Icon={FileWarning}
             tone={{surface: workhorse.warningSurface, ink: workhorse.warningInk}}
-            onPress={() => openReports('submitted')}
+            onPress={() => openReports('open')}
           />
           <StatCard
             label="Resolved"

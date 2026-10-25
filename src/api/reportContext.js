@@ -62,6 +62,47 @@ const safe = async (id, fetcher) => {
 };
 
 /**
+ * Resolve a parcel-match id into the match + sender + traveler + trip
+ * records — the "request" half of resolveReportContext, pulled out on its
+ * own so a screen that has a matchId but no Report (the support-chat Thread
+ * screen, which is now reached directly from "Report an issue" in the
+ * consumer app without a Report ever being filed) can show the same
+ * request/sender/traveler context without needing one.
+ *
+ * @param {string} matchId
+ * @returns {Promise<{
+ *   match: object|null, sender: object|null, traveler: object|null,
+ *   travelPlan: object|null,
+ *   errors: {match?: Error, sender?: Error, traveler?: Error, travelPlan?: Error}
+ * }>}
+ */
+export const resolveMatchContext = async matchId => {
+  const result = {match: null, sender: null, traveler: null, travelPlan: null, errors: {}};
+  const assign = (key, outcome) => {
+    result[key] = outcome.data;
+    if (outcome.error) {
+      result.errors[key] = outcome.error;
+    }
+  };
+
+  const match = await safe(matchId, getParcelMatch);
+  assign('match', match);
+  if (!match.data) {
+    return result;
+  }
+  const {senderUserId, travelerUserId, travelPlanId} = match.data;
+  const [sender, traveler, travelPlan] = await Promise.all([
+    safe(senderUserId, getUser),
+    safe(travelerUserId, getUser),
+    safe(travelPlanId, getTravelPlan),
+  ]);
+  assign('sender', sender);
+  assign('traveler', traveler);
+  assign('travelPlan', travelPlan);
+  return result;
+};
+
+/**
  * Resolve everything a report points at. Partial by design: one failing
  * lookup (e.g. a deleted user) leaves that key null and records the error in
  * `errors`, without blocking the others.
@@ -110,20 +151,12 @@ export const resolveReportContext = async report => {
     }
 
     if (report.reportedType === 'request') {
-      const match = await safe(report.reportedId, getParcelMatch);
-      assign('match', match);
-      if (!match.data) {
-        return;
-      }
-      const {senderUserId, travelerUserId, travelPlanId} = match.data;
-      const [sender, traveler, travelPlan] = await Promise.all([
-        safe(senderUserId, getUser),
-        safe(travelerUserId, getUser),
-        safe(travelPlanId, getTravelPlan),
-      ]);
-      assign('sender', sender);
-      assign('traveler', traveler);
-      assign('travelPlan', travelPlan);
+      const matchContext = await resolveMatchContext(report.reportedId);
+      result.match = matchContext.match;
+      result.sender = matchContext.sender;
+      result.traveler = matchContext.traveler;
+      result.travelPlan = matchContext.travelPlan;
+      Object.assign(result.errors, matchContext.errors);
     }
   };
 

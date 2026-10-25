@@ -15,6 +15,7 @@ import {AlertTriangle, RotateCw} from 'lucide-react-native';
 import {isUnauthorizedError} from '../../api/client';
 import {getReport} from '../../api/reports';
 import {resolveReportContext} from '../../api/reportContext';
+import {displayNameOf} from '../../api/users';
 import ScreenHeader from '../../components/ScreenHeader';
 import DetailSection from '../../components/DetailSection';
 import StatusPill, {getReportStatusMeta} from '../../components/StatusPill';
@@ -32,8 +33,8 @@ import {
 } from '../../utils/format';
 import PhotoStrip from './PhotoStrip';
 import {RequestCard, TripCard} from './RequestCards';
-import AdminActionForm from './AdminActionForm';
 import DisputeResolution from './DisputeResolution';
+import SupportChatSection from './SupportChatSection';
 
 const OPEN_STATUSES = ['submitted', 'under_review'];
 
@@ -65,6 +66,38 @@ const StatusTimeline = ({history}) => (
     })}
   </View>
 );
+
+// Who/what this report is about, in plain language — never a raw id.
+// Falls back to the match's quick name fields (match.senderName /
+// .travelerName) before the full user records have loaded.
+const reportedLabel = (report, context, contextLoading) => {
+  if (report.reportedType === 'system') {
+    return 'System-wide report';
+  }
+  if (!report.reportedId) {
+    return `Against ${report.reportedType}`;
+  }
+  if (!context) {
+    return contextLoading ? 'Loading who this report is about…' : `Against ${report.reportedType}`;
+  }
+  if (report.reportedType === 'user') {
+    const name = displayNameOf(context.reportedUser);
+    return name ? `Against ${name}` : 'Against a user · name unavailable';
+  }
+  if (report.reportedType === 'request') {
+    const match = context.match;
+    if (!match) {
+      return 'Against a delivery request · details unavailable';
+    }
+    const sender = displayNameOf(context.sender) || match.senderName;
+    const traveler = displayNameOf(context.traveler) || match.travelerName;
+    if (sender && traveler) {
+      return `Delivery request · ${sender} (sender) → ${traveler} (traveler)`;
+    }
+    return 'Against a delivery request';
+  }
+  return `Against ${report.reportedType}`;
+};
 
 const SlaValue = ({report}) => {
   const due = parseDate(report.slaDueAt);
@@ -243,16 +276,25 @@ export default function ReportDetailScreen({navigation, route}) {
 
   // "Reported by" — resolved alongside the rest of the context (see
   // resolveReportContext); reporterId is only present on admin responses.
+  // Always rendered (even when there's nothing to show) so it's clear
+  // whether the reporter is missing from this report's data or just
+  // still loading, rather than silently disappearing.
   const renderReporter = () => {
     if (!report?.reporterId) {
-      return null;
+      return (
+        <DetailSection title="Reported by">
+          <Text style={styles.note}>No reporter recorded on this report.</Text>
+        </DetailSection>
+      );
     }
     if (!context) {
-      return contextLoading ? (
+      return (
         <DetailSection title="Reported by">
-          <Text style={styles.note}>Loading reporter…</Text>
+          <Text style={styles.note}>
+            {contextLoading ? 'Loading reporter…' : 'Could not load the reporter.'}
+          </Text>
         </DetailSection>
-      ) : null;
+      );
     }
     return (
       <PersonCard
@@ -323,9 +365,8 @@ export default function ReportDetailScreen({navigation, route}) {
           <View style={styles.header}>
             <View>
               <Text style={styles.heroTitle}>{humanize(report.category) || 'Report'}</Text>
-              <Text style={styles.heroSub} selectable>
-                Against {report.reportedType}
-                {report.reportedId ? ` · ${report.reportedId}` : ''}
+              <Text style={styles.heroSub}>
+                {reportedLabel(report, context, contextLoading)}
               </Text>
               <View style={styles.heroPills}>
                 <StatusPill status={report.status} size="md" />
@@ -381,6 +422,10 @@ export default function ReportDetailScreen({navigation, route}) {
           {/* 2. Request details, then the people involved (and the trip). */}
           {renderContext()}
 
+          {/* Chat with the reporter — existing thread preview or "Start a
+              chat". Loads on its own so it never holds up the cards above. */}
+          <SupportChatSection report={report} navigation={navigation} />
+
           {/* 3. Screenshots. */}
           {photos.length > 0 && (
             <DetailSection title={`Screenshots (${photos.length})`}>
@@ -398,11 +443,6 @@ export default function ReportDetailScreen({navigation, route}) {
           </DetailSection>
 
           {renderDispute()}
-
-          <AdminActionForm
-            report={report}
-            onSaved={() => load({mode: 'silent'})}
-          />
         </ScrollView>
       </KeyboardAvoidingView>
     );

@@ -112,7 +112,6 @@ export const RequestCard = ({match, matchId, error}) => {
         {label: 'Note', value: match.note, fullWidth: true},
         {label: 'Created', value: formatDateTime(match.createdAt)},
         {label: 'Updated', value: formatDateTime(match.updatedAt)},
-        {label: 'Request ID', value: match.id, fullWidth: true},
       ]}>
       {match.disputed && (
         <Callout title="Disputed">
@@ -193,7 +192,6 @@ export const TripCard = ({travelPlan, travelPlanId, error}) => {
         {label: 'Accepting requests', value: formatYesNo(travelPlan.acceptingNewRequests)},
         {label: 'Notes', value: travelPlan.additionalInfo, fullWidth: true},
         {label: 'Created', value: formatDate(travelPlan.createdAt)},
-        {label: 'Trip ID', value: travelPlan.id, fullWidth: true},
       ]}
     />
   );

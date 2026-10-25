@@ -108,10 +108,26 @@ const PersonCard = ({title, user, userId, fallbackName, error}) => {
   const hasBanHistory = !!(user.bannedAt || user.banReason);
   const hasUnban = !!(user.unbannedAt || user.unbanReason);
 
+  const flagPills = flags.map(flag => (
+    <StatusPill key={flag} meta={FLAG_META[flag]} />
+  ));
+
+  // Collapsed by default: the header still shows who this is and their
+  // verified / banned / under-investigation state; tap for the full record.
   return (
     <DetailSection
       title={title}
       hideEmpty
+      collapsible
+      defaultCollapsed
+      collapsedSummary={
+        <>
+          <Text style={styles.summaryName} numberOfLines={1}>
+            {user.name || fallbackName || 'Unnamed user'}
+          </Text>
+          <View style={styles.flags}>{flagPills}</View>
+        </>
+      }
       fields={[
         {label: 'Name', value: user.name || fallbackName, fullWidth: true},
         {label: 'Phone', value: phone},
@@ -122,13 +138,8 @@ const PersonCard = ({title, user, userId, fallbackName, error}) => {
         {label: 'Photo verified', value: user.photoVerified ? 'Yes' : 'No'},
         {label: 'Account status', value: accountStatus},
         {label: 'Member since', value: formatDate(user.createdAt)},
-        {label: 'User ID', value: user.id || userId, fullWidth: true},
       ]}>
-      <View style={styles.flags}>
-        {flags.map(flag => (
-          <StatusPill key={flag} meta={FLAG_META[flag]} />
-        ))}
-      </View>
+      <View style={styles.flags}>{flagPills}</View>
 
       {user.underInvestigation && (
         <View style={[styles.callout, styles.dangerCallout]}>
@@ -171,6 +182,13 @@ const PersonCard = ({title, user, userId, fallbackName, error}) => {
 
 const styles = StyleSheet.create({
   flags: {flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm},
+  summaryName: {
+    fontFamily: fonts.body,
+    fontSize: 15,
+    fontWeight: '600',
+    color: workhorse.ink,
+    marginBottom: spacing.sm,
+  },
   callout: {
     marginTop: spacing.md,
     padding: spacing.md,

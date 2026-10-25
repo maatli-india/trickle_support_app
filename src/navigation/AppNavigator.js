@@ -3,16 +3,15 @@ import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {FileWarning, House, MessageSquare, Settings} from 'lucide-react-native';
+import {FileWarning, House, Settings} from 'lucide-react-native';
 
 import SplashScreen from '../screens/SplashScreen';
 import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/Home';
-import ReportsScreen from '../screens/Reports';
+import IssuesScreen from '../screens/Issues';
 import SettingsScreen from '../screens/Settings';
 import ReportDetailScreen from '../screens/ReportDetail';
 import NotificationsScreen from '../screens/Notifications';
-import SupportChatListScreen from '../screens/SupportChat/ThreadList';
 import SupportChatThreadScreen from '../screens/SupportChat/Thread';
 import {workhorse} from '../constants/colors';
 import fonts from '../constants/fonts';
@@ -23,12 +22,16 @@ import radius from '../constants/radius';
 //   Root stack:  Splash → Login → MainTabs
 //   MainTabs (bottom tabs, custom bar):
 //     HomeTab     → Home            + SHARED_SCREENS
-//     ReportsTab  → Reports         + SHARED_SCREENS
-//     ChatsTab    → SupportChatList + SHARED_SCREENS
+//     IssuesTab   → Issues          + SHARED_SCREENS
 //     SettingsTab → Settings        + SHARED_SCREENS
 //
 // Cross-tab navigation targets the tab route plus its root screen, e.g.
-// navigation.navigate('ReportsTab', {screen: 'Reports', params: {...}}).
+// navigation.navigate('IssuesTab', {screen: 'Issues', params: {...}}).
+//
+// IssuesTab replaces what used to be separate Reports and Chats tabs — a
+// request's filed Report and its support-chat thread are now considered the
+// SAME issue (one row), not two disconnected list entries on two different
+// tabs. See screens/Issues/index.js for the merge.
 
 const RootStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -36,8 +39,7 @@ const Stack = createNativeStackNavigator();
 
 const TAB_META = {
   HomeTab: {label: 'Home', Icon: House},
-  ReportsTab: {label: 'Reports', Icon: FileWarning},
-  ChatsTab: {label: 'Chats', Icon: MessageSquare},
+  IssuesTab: {label: 'Issues', Icon: FileWarning},
   SettingsTab: {label: 'Settings', Icon: Settings},
 };
 
@@ -96,7 +98,7 @@ const CustomTabBar = ({state, descriptors, navigation}) => {
 };
 
 // Every screen reachable from a push notification (or from the Notifications
-// screen itself) is registered identically inside ALL four tab stacks.
+// screen itself) is registered identically inside ALL three tab stacks.
 // pushWhenReady() dispatches StackActions.push via the root ref, and that
 // push resolves against whichever tab's stack currently has focus — so a
 // screen registered in only one tab's stack would be unreachable whenever a
@@ -121,16 +123,9 @@ const HomeStack = () => (
   </Stack.Navigator>
 );
 
-const ReportsStack = () => (
+const IssuesStack = () => (
   <Stack.Navigator screenOptions={{headerShown: false}}>
-    <Stack.Screen name="Reports" component={ReportsScreen} />
-    {renderSharedScreens()}
-  </Stack.Navigator>
-);
-
-const ChatsStack = () => (
-  <Stack.Navigator screenOptions={{headerShown: false}}>
-    <Stack.Screen name="SupportChatList" component={SupportChatListScreen} />
+    <Stack.Screen name="Issues" component={IssuesScreen} />
     {renderSharedScreens()}
   </Stack.Navigator>
 );
@@ -148,8 +143,7 @@ const MainTabs = () => (
   <View style={styles.root}>
     <Tab.Navigator screenOptions={{headerShown: false}} tabBar={renderTabBar}>
       <Tab.Screen name="HomeTab" component={HomeStack} />
-      <Tab.Screen name="ReportsTab" component={ReportsStack} />
-      <Tab.Screen name="ChatsTab" component={ChatsStack} />
+      <Tab.Screen name="IssuesTab" component={IssuesStack} />
       <Tab.Screen name="SettingsTab" component={SettingsStack} />
     </Tab.Navigator>
   </View>

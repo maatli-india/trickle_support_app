@@ -12,8 +12,8 @@ import colors from '../constants/colors';
 import fonts from '../constants/fonts';
 import {
   clearTokens,
+  ensureValidSession,
   getAccessToken,
-  hasValidSession,
   loadTokens,
 } from '../api/client';
 import {registerDeviceForPush} from '../notifications/push';
@@ -30,8 +30,9 @@ export default function SplashScreen({navigation}) {
       let loggedIn = false;
       try {
         await loadTokens();
-        loggedIn = hasValidSession();
-        // Stored but expired → treat as logged out without waiting for a 401.
+        // Tries a silent refresh first when the access token has expired —
+        // only a genuinely dead/missing refresh token counts as logged out.
+        loggedIn = await ensureValidSession();
         if (!loggedIn && getAccessToken()) {
           await clearTokens();
         }

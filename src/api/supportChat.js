@@ -43,15 +43,36 @@ const withQuery = (path, params) => {
 // ---------------------------------------------------------------------------
 
 /**
- * GET /v1/admin/support-chats?status=&page=&limit=
- * Unscoped queue, most recent activity (lastMessageAt) first.
+ * GET /v1/admin/support-chats?status=&userId=&matchId=&page=&limit=
+ * Unscoped queue, most recent activity (lastMessageAt) first. `userId`
+ * narrows to one reporter's threads; `matchId` narrows to one request's
+ * thread — used by the Issues list to pair a request-type report with its
+ * own thread, not just any thread the same user happens to have open.
  * @returns {Promise<{total: number, page: number, limit: number, items: object[]}>}
  */
 export const listSupportThreads = ({
   status,
+  userId,
+  matchId,
   page = 1,
   limit = SUPPORT_THREADS_PAGE_SIZE,
-} = {}) => apiGet(withQuery('/v1/admin/support-chats', {status, page, limit}));
+} = {}) => apiGet(withQuery('/v1/admin/support-chats', {status, userId, matchId, page, limit}));
+
+/**
+ * POST /v1/admin/support-chats — get-or-create a thread on behalf of a
+ * specific user, the admin-initiated counterpart to the end-user app's own
+ * POST /v1/support-chats (which can only ever act on the caller's own
+ * identity). Body: {userId, reason, reasonLabel, matchId?, role?}.
+ * @returns {Promise<object>} SupportThread
+ */
+export const adminCreateSupportThread = ({userId, reason, reasonLabel, matchId, role}) =>
+  apiPost('/v1/admin/support-chats', {
+    userId,
+    reason,
+    reasonLabel,
+    ...(matchId ? {matchId} : {}),
+    ...(role ? {role} : {}),
+  });
 
 /** GET /v1/admin/support-chats/{id} → SupportThread */
 export const getSupportThread = id =>
@@ -189,6 +210,19 @@ export const sendSupportMessage = (ws, text, replyToId) =>
   sendSocketEvent(ws, 'support_message', {
     type: 'text',
     text,
+    ...(replyToId ? {replyToId} : {}),
+  });
+
+/**
+ * Send an already-uploaded image/file through an open support-chat
+ * WebSocket. The file must already be READY (see uploadSupportChatImage in
+ * src/api/files.js) — the server re-checks this and rejects anything else.
+ * @returns {boolean} false if the socket wasn't open (caller should retry)
+ */
+export const sendSupportFileMessage = (ws, fileId, replyToId) =>
+  sendSocketEvent(ws, 'support_message', {
+    type: 'file',
+    fileId,
     ...(replyToId ? {replyToId} : {}),
   });
 

@@ -1,5 +1,6 @@
-import React from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import React, {useState} from 'react';
+import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {ChevronDown, ChevronUp} from 'lucide-react-native';
 import {workhorse} from '../constants/colors';
 import fonts from '../constants/fonts';
 import radius from '../constants/radius';
@@ -32,6 +33,12 @@ const isEmpty = value =>
  * @param {1|2} [columns=2]
  * @param {string} [emptyText='—']
  * @param {boolean} [hideEmpty=false] - drop fields whose value is empty
+ * @param {boolean} [collapsible=false] - header becomes a toggle; `fields`
+ *        and `children` only render while expanded
+ * @param {boolean} [defaultCollapsed=false] - initial state when collapsible
+ * @param {ReactNode} [collapsedSummary] - shown under the title while
+ *        collapsed (e.g. name + status pills), so the card still says who /
+ *        what it is at a glance
  */
 const DetailSection = ({
   title,
@@ -42,19 +49,18 @@ const DetailSection = ({
   hideEmpty = false,
   children,
   style,
+  collapsible = false,
+  defaultCollapsed = false,
+  collapsedSummary,
 }) => {
+  const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
+  const isCollapsed = collapsible && collapsed;
   const visibleFields = (fields || []).filter(
     field => field && !(hideEmpty && isEmpty(field.value)),
   );
 
-  return (
-    <View style={[styles.section, style]}>
-      {(!!title || !!action) && (
-        <View style={styles.header}>
-          {!!title && <Text style={styles.title}>{title.toUpperCase()}</Text>}
-          {action}
-        </View>
-      )}
+  const renderContent = () => (
+    <>
       {visibleFields.length > 0 && (
         <View style={styles.grid}>
           {visibleFields.map((field, index) => (
@@ -86,6 +92,48 @@ const DetailSection = ({
           {children}
         </View>
       )}
+    </>
+  );
+
+  if (collapsible) {
+    const Chevron = isCollapsed ? ChevronDown : ChevronUp;
+    return (
+      <View style={[styles.section, style]}>
+        <Pressable
+          onPress={() => setCollapsed(value => !value)}
+          style={({pressed}) => [
+            styles.collapsibleHeader,
+            !isCollapsed && styles.collapsibleHeaderOpen,
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{expanded: !isCollapsed}}
+          accessibilityLabel={title ? `${title}, ${isCollapsed ? 'expand' : 'collapse'}` : undefined}>
+          <View style={styles.collapsibleHeaderMain}>
+            <View style={styles.headerRow}>
+              {!!title && <Text style={styles.title}>{title.toUpperCase()}</Text>}
+              {action}
+            </View>
+            {isCollapsed && !!collapsedSummary && (
+              <View style={styles.summary}>{collapsedSummary}</View>
+            )}
+          </View>
+          <Chevron size={18} color={workhorse.muted} />
+        </Pressable>
+        {!isCollapsed && renderContent()}
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.section, style]}>
+      {(!!title || !!action) && (
+        <View style={styles.header}>
+          {!!title && <Text style={styles.title}>{title.toUpperCase()}</Text>}
+          {action}
+        </View>
+      )}
+      {renderContent()}
     </View>
   );
 };
@@ -136,6 +184,20 @@ const styles = StyleSheet.create({
     color: workhorse.ink,
   },
   emptyValue: {color: workhorse.muted},
+  collapsibleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  collapsibleHeaderOpen: {marginBottom: spacing.md},
+  collapsibleHeaderMain: {flex: 1},
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  summary: {marginTop: spacing.sm},
+  pressed: {opacity: 0.68},
   childrenSpaced: {marginTop: spacing.xs},
 });
 

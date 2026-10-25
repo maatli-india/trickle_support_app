@@ -3,8 +3,11 @@ import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Image,
   KeyboardAvoidingView,
+  Modal,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -13,18 +16,32 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {useIsFocused} from '@react-navigation/native';
-import {ArrowLeft, FileText, MapPin, Send} from 'lucide-react-native';
+import {launchImageLibrary} from 'react-native-image-picker';
+import {
+  ArrowLeft,
+  ImageOff,
+  Info,
+  MapPin,
+  Paperclip,
+  Send,
+  X,
+} from 'lucide-react-native';
 import {isUnauthorizedError} from '../../api/client';
 import {
   connectAdminSupportChatWebSocket,
   fetchOlderSupportMessages,
   getSupportThread,
+  sendSupportFileMessage,
   sendSupportMessage,
   SUPPORT_HISTORY_PAGE_SIZE,
   updateSupportThread,
 } from '../../api/supportChat';
+import {adminFileImageSource, uploadSupportChatImage} from '../../api/files';
+import {resolveMatchContext} from '../../api/reportContext';
 import StatusPill from '../../components/StatusPill';
 import ConfirmModal from '../../components/ConfirmModal';
+import PersonCard from '../../components/PersonCard';
+import {RequestCard, TripCard} from '../ReportDetail/RequestCards';
 import {workhorse} from '../../constants/colors';
 import fonts from '../../constants/fonts';
 import radius from '../../constants/radius';
@@ -80,6 +97,30 @@ const mergeMessages = (current, incoming) => {
   );
 };
 
+// A file-message bubble — reuses adminFileImageSource (the same
+// unrestricted admin download-url endpoint PhotoStrip.js uses, so no
+// per-file ownership check blocks viewing a file the user sent) and the
+// same per-thumb error-fallback pattern.
+const PhotoBubble = ({fileId, onPress}) => {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <View style={[styles.photoBubble, styles.photoFailed]}>
+        <ImageOff size={18} color={workhorse.muted} />
+      </View>
+    );
+  }
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="View photo">
+      <Image
+        source={adminFileImageSource(fileId)}
+        style={styles.photoBubble}
+        onError={() => setFailed(true)}
+      />
+    </Pressable>
+  );
+};
+
 export default function SupportChatThreadScreen({navigation, route}) {
   const threadId = route.params?.threadId;
   const isFocused = useIsFocused();
@@ -115,6 +156,17 @@ export default function SupportChatThreadScreen({navigation, route}) {
   const [notice, setNotice] = useState('');
   const [pendingStatus, setPendingStatus] = useState(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  // Request/sender/traveler/trip context — shown in the info modal so
+  // whoever is answering this chat has everything about the request on
+  // hand without leaving the conversation. Loaded in the background as soon
+  // as the thread's matchId is known (not gated on opening the modal), so
+  // it's already there the moment someone taps the info button.
+  const [matchContext, setMatchContext] = useState(null);
+  const [matchContextLoading, setMatchContextLoading] = useState(false);
+  const [showContext, setShowContext] = useState(false);
+  const loadedMatchIdRef = useRef(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [viewerFileId, setViewerFileId] = useState(null);
 
   // ── thread metadata (title, status, userId for bubble alignment) ──────────
   const loadThread = useCallback(async () => {
@@ -138,6 +190,29 @@ export default function SupportChatThreadScreen({navigation, route}) {
       loadThread();
     }
   }, [isFocused, loadThread]);
+
+  // Fetch the request/sender/traveler/trip context once per matchId (not on
+  // every thread refresh — loadThread polls thread.matchId repeatedly but
+  // it never changes for a given thread).
+  useEffect(() => {
+    const matchId = thread?.matchId;
+    if (!matchId || loadedMatchIdRef.current === matchId) {
+      return;
+    }
+    loadedMatchIdRef.current = matchId;
+    setMatchContextLoading(true);
+    resolveMatchContext(matchId)
+      .then(context => {
+        if (mountedRef.current) {
+          setMatchContext(context);
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current) {
+          setMatchContextLoading(false);
+        }
+      });
+  }, [thread?.matchId]);
 
   // ── socket ────────────────────────────────────────────────────────────────
   const connect = useCallback(() => {
@@ -344,6 +419,38 @@ export default function SupportChatThreadScreen({navigation, route}) {
     }
   };
 
+  const pickAndSendFile = async () => {
+    if (uploadingFile || !threadId) {
+      return;
+    }
+    const result = await launchImageLibrary({mediaType: 'photo', quality: 0.8});
+    if (result.didCancel || result.errorCode) {
+      return;
+    }
+    const asset = (result.assets || []).find(item => item.uri);
+    if (!asset) {
+      return;
+    }
+    setUploadingFile(true);
+    try {
+      const fileId = await uploadSupportChatImage(threadId, asset);
+      if (!fileId) {
+        setNotice('Could not upload that photo. Please try again.');
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !sendSupportFileMessage(socket, fileId)) {
+        setNotice("Uploaded, but couldn't send — please try again.");
+      }
+    } catch (error) {
+      if (!isUnauthorizedError(error)) {
+        setNotice(error?.message || 'Could not upload that photo. Please try again.');
+      }
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
   // ── status actions ────────────────────────────────────────────────────────
   const confirmStatus = async () => {
     const status = pendingStatus;
@@ -378,19 +485,15 @@ export default function SupportChatThreadScreen({navigation, route}) {
   const isFromSupport = item => !!userId && String(item.senderId) !== String(userId);
 
   const renderMessageContent = (item, mine) => {
-    if (item.type === 'file' || item.type === 'location') {
-      const Icon = item.type === 'file' ? FileText : MapPin;
-      const label =
-        item.type === 'file'
-          ? 'Sent a file'
-          : item.location?.address
-          ? `Sent a location · ${item.location.address}`
-          : 'Sent a location';
+    if (item.type === 'file') {
+      return <PhotoBubble fileId={item.fileId} onPress={() => setViewerFileId(item.fileId)} />;
+    }
+    if (item.type === 'location') {
       return (
         <View style={styles.placeholderRow}>
-          <Icon size={14} color={mine ? workhorse.successInk : workhorse.secondary} />
+          <MapPin size={14} color={mine ? workhorse.successInk : workhorse.secondary} />
           <Text style={[styles.placeholderText, mine && styles.bubbleTextMine]} numberOfLines={2}>
-            {label}
+            {item.location?.address ? `Sent a location · ${item.location.address}` : 'Sent a location'}
           </Text>
         </View>
       );
@@ -444,6 +547,15 @@ export default function SupportChatThreadScreen({navigation, route}) {
               {thread?.createdAt ? ` · opened ${formatDateTime(thread.createdAt)}` : ''}
             </Text>
           </View>
+          {!!thread?.matchId && (
+            <Pressable
+              onPress={() => setShowContext(true)}
+              style={({pressed}) => [styles.iconButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="View request details">
+              <Info size={17} color={workhorse.ink} />
+            </Pressable>
+          )}
           {!!statusMeta && <StatusPill meta={statusMeta} size="sm" style={styles.headerPill} />}
         </View>
 
@@ -533,6 +645,18 @@ export default function SupportChatThreadScreen({navigation, route}) {
 
         {!fatalError && (
           <View style={styles.inputBar}>
+            <Pressable
+              onPress={pickAndSendFile}
+              style={[styles.attachButton, (!connected || uploadingFile) && styles.sendButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Attach a photo"
+              disabled={!connected || uploadingFile}>
+              {uploadingFile ? (
+                <ActivityIndicator size="small" color={workhorse.secondary} />
+              ) : (
+                <Paperclip size={17} color={workhorse.secondary} />
+              )}
+            </Pressable>
             <TextInput
               style={styles.textInput}
               placeholder={connected ? 'Reply as Trickle Support…' : 'Connecting…'}
@@ -556,6 +680,32 @@ export default function SupportChatThreadScreen({navigation, route}) {
             </Pressable>
           </View>
         )}
+
+        <Modal
+          visible={!!viewerFileId}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setViewerFileId(null)}>
+          <Pressable
+            style={styles.viewerBackdrop}
+            onPress={() => setViewerFileId(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Close photo">
+            <Pressable
+              style={styles.viewerCloseButton}
+              onPress={() => setViewerFileId(null)}
+              accessibilityLabel="Close photo">
+              <X size={20} color={workhorse.surface} />
+            </Pressable>
+            {!!viewerFileId && (
+              <Image
+                source={adminFileImageSource(viewerFileId)}
+                style={styles.viewerImage}
+                resizeMode="contain"
+              />
+            )}
+          </Pressable>
+        </Modal>
       </KeyboardAvoidingView>
 
       <ConfirmModal
@@ -567,6 +717,66 @@ export default function SupportChatThreadScreen({navigation, route}) {
         onConfirm={confirmStatus}
         onCancel={() => setPendingStatus(null)}
       />
+
+      <Modal
+        visible={showContext}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowContext(false)}>
+        <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
+          <View style={styles.header}>
+            <View style={styles.headerCopy}>
+              <Text style={styles.title}>Request details</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                Everything about the request this chat is about
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setShowContext(false)}
+              style={({pressed}) => [styles.iconButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Close">
+              <X size={18} color={workhorse.ink} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.contextContent} showsVerticalScrollIndicator={false}>
+            {matchContextLoading && !matchContext ? (
+              <ActivityIndicator size="small" color={workhorse.muted} style={styles.contextLoading} />
+            ) : (
+              <>
+                <RequestCard
+                  match={matchContext?.match}
+                  matchId={thread?.matchId}
+                  error={matchContext?.errors?.match}
+                />
+                {!!matchContext?.match && (
+                  <>
+                    <PersonCard
+                      title="Sender"
+                      user={matchContext.sender}
+                      userId={matchContext.match.senderUserId}
+                      fallbackName={matchContext.match.senderName}
+                      error={matchContext.errors?.sender}
+                    />
+                    <PersonCard
+                      title="Traveler"
+                      user={matchContext.traveler}
+                      userId={matchContext.match.travelerUserId}
+                      fallbackName={matchContext.match.travelerName}
+                      error={matchContext.errors?.traveler}
+                    />
+                    <TripCard
+                      travelPlan={matchContext.travelPlan}
+                      travelPlanId={matchContext.match.travelPlanId}
+                      error={matchContext.errors?.travelPlan}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -682,6 +892,31 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: workhorse.secondary,
   },
+  photoBubble: {
+    width: 190,
+    height: 190,
+    borderRadius: radius.md,
+    backgroundColor: workhorse.surfaceMuted,
+  },
+  photoFailed: {alignItems: 'center', justifyContent: 'center'},
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(10,12,20,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {width: '100%', height: '80%'},
+  viewerCloseButton: {
+    position: 'absolute',
+    top: 54,
+    right: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   emptyText: {
     alignSelf: 'center',
     fontFamily: fonts.body,
@@ -724,6 +959,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: workhorse.ink,
   },
+  attachButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: workhorse.surface,
+    borderWidth: 1,
+    borderColor: workhorse.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sendButton: {
     width: 38,
     height: 38,
@@ -734,4 +979,6 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {opacity: 0.35},
   pressed: {opacity: 0.68},
+  contextContent: {padding: spacing.lg, paddingBottom: spacing.xxl},
+  contextLoading: {marginTop: spacing.xxl},
 });

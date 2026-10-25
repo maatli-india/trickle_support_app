@@ -276,6 +276,36 @@ const attemptTokenRefresh = () => {
   return _refreshPromise;
 };
 
+/**
+ * True when there's a usable session — either the stored access token is
+ * still within its expiry, or (when it's expired) a refresh token on hand
+ * was just successfully exchanged for a new one. Call once on app start,
+ * right after loadTokens() — in place of hasValidSession() alone, which
+ * only checks the access token's own expiry and says nothing about whether
+ * a refresh token could extend the session.
+ *
+ * Without this, Splash was treating "access token's ~1h window elapsed
+ * since the app was last opened" as a full logout and wiping the refresh
+ * token right along with it (see Splash's clearTokens() call), even though
+ * the refresh token was still perfectly valid — the admin app has no
+ * equivalent of the consumer app's App.js, which never checks expiry at
+ * startup at all and just trusts a stored access token until some real
+ * request 401s and attemptTokenRefresh() quietly handles it. For a support
+ * admin opening the app a few times a day, that meant a fresh login almost
+ * every single time.
+ *
+ * @returns {Promise<boolean>}
+ */
+export const ensureValidSession = async () => {
+  if (hasValidSession()) {
+    return true;
+  }
+  if (!_accessToken || !_refreshToken) {
+    return false;
+  }
+  return attemptTokenRefresh();
+};
+
 // ---------------------------------------------------------------------------
 // Core request helper
 // ---------------------------------------------------------------------------
